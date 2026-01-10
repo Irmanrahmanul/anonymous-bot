@@ -1,16 +1,14 @@
 <?php
 $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
-$STATE_FILE = "/tmp/state.json"; // Menggunakan folder /tmp agar diizinkan menulis di Railway
+$STATE_FILE = "/tmp/state.json"; 
 
-// Inisialisasi file state jika belum ada
 if (!file_exists($STATE_FILE)) {
     file_put_contents($STATE_FILE, json_encode(["waiting" => null, "pairs" => []]));
 }
 
 $update = json_decode(file_get_contents("php://input"), true);
 
-// Debugging: Catat ke log Railway jika ada pesan masuk
 if ($update) {
     error_log("Update diterima: " . json_encode($update));
 }
