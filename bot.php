@@ -8,43 +8,49 @@ if (!file_exists($STATE_FILE)) {
 }
 
 $update = json_decode(file_get_contents("php://input"), true);
-
-if ($update) {
-    error_log("Update diterima: " . json_encode($update));
-}
-
 if (!isset($update["message"])) exit;
 
-$user_id = $update["message"]["from"]["id"];
-$text = trim($update["message"]["text"] ?? "");
-
+$message = $update["message"];
+$user_id = $message["from"]["id"];
+$text = trim($message["text"] ?? "");
 $state = json_decode(file_get_contents($STATE_FILE), true);
 
-function sendMessage($chat_id, $text) {
+// Fungsi Kirim Pesan (Teks & Media)
+function forwardMedia($method, $chat_id, $file_id, $caption = "") {
     global $API;
-    $url = $API . "sendMessage";
+    $data = ["chat_id" => $chat_id, array_keys($file_id)[0] => array_values($file_id)[0]];
+    if ($caption) $data["caption"] = $caption;
+
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_URL, $API . $method);
     curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
-        "chat_id" => $chat_id,
-        "text" => $text
-    ]));
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_exec($ch);
     curl_close($ch);
 }
 
-// --- LOGIKA BOT ---
+function sendMessage($chat_id, $text) {
+    global $API;
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $API . "sendMessage");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query(["chat_id" => $chat_id, "text" => $text]));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+// --- LOGIKA UTAMA ---
 if ($text === "/start") {
-    sendMessage($user_id, "🔒 Anonymous Chat Bot\n\n/find - Cari pasangan\n/stop - Berhenti");
+    sendMessage($user_id, "🔒 Anonymous Chat\n/find - Cari teman\n/stop - Berhenti");
 } 
 elseif ($text === "/find") {
     if (isset($state["pairs"][$user_id])) {
         sendMessage($user_id, "⚠️ Kamu sudah terhubung.");
     } elseif ($state["waiting"] === $user_id) {
-        sendMessage($user_id, "⏳ Masih mencari pasangan...");
+        sendMessage($user_id, "⏳ Masih mencari...");
     } elseif ($state["waiting"] === null) {
         $state["waiting"] = $user_id;
         sendMessage($user_id, "⏳ Mencari pasangan...");
@@ -53,22 +59,40 @@ elseif ($text === "/find") {
         $state["waiting"] = null;
         $state["pairs"][$user_id] = $partner;
         $state["pairs"][$partner] = $user_id;
-        sendMessage($user_id, "✅ Terhubung! Silakan chat.");
-        sendMessage($partner, "✅ Terhubung! Silakan chat.");
+        sendMessage($user_id, "✅ Terhubung!");
+        sendMessage($partner, "✅ Terhubung!");
     }
 }
 elseif ($text === "/stop") {
     if (isset($state["pairs"][$user_id])) {
         $partner = $state["pairs"][$user_id];
         unset($state["pairs"][$user_id], $state["pairs"][$partner]);
-        sendMessage($partner, "❌ Pasangan telah berhenti.");
+        sendMessage($partner, "❌ Pasangan berhenti.");
     }
     if ($state["waiting"] === $user_id) $state["waiting"] = null;
-    sendMessage($user_id, "🛑 Kamu telah keluar.");
+    sendMessage($user_id, "🛑 Selesai.");
 }
+// --- BAGIAN RELAY (Penerusan Media) ---
 elseif (isset($state["pairs"][$user_id])) {
-    sendMessage($state["pairs"][$user_id], $text);
+    $target = $state["pairs"][$user_id];
+    $caption = $message["caption"] ?? "";
+
+    if (isset($message["text"])) {
+        sendMessage($target, $message["text"]);
+    } elseif (isset($message["voice"])) {
+        forwardMedia("sendVoice", $target, ["voice" => $message["voice"]["file_id"]]);
+    } elseif (isset($message["video"])) {
+        forwardMedia("sendVideo", $target, ["video" => $message["video"]["file_id"]], $caption);
+    } elseif (isset($message["audio"])) {
+        forwardMedia("sendAudio", $target, ["audio" => $message["audio"]["file_id"]], $caption);
+    } elseif (isset($message["photo"])) {
+        $photo = end($message["photo"]); // Ambil ukuran foto terbesar
+        forwardMedia("sendPhoto", $target, ["photo" => $photo["file_id"]], $caption);
+    } elseif (isset($message["sticker"])) {
+        forwardMedia("sendSticker", $target, ["sticker" => $message["sticker"]["file_id"]]);
+    } elseif (isset($message["video_note"])) {
+        forwardMedia("sendVideoNote", $target, ["video_note" => $message["video_note"]["file_id"]]);
+    }
 }
 
-// Simpan State
 file_put_contents($STATE_FILE, json_encode($state));
