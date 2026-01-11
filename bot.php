@@ -7,7 +7,7 @@ $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
 $STATE_FILE = "/tmp/state.json"; 
 
-// --- 2. KONEKSI DATABASE (VERSI PDO - ANTI ERROR) ---
+// --- 2. KONEKSI DATABASE (PDO) ---
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
@@ -17,7 +17,12 @@ $port = getenv('MYSQLPORT');
 try {
     $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
     $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+    // MEMBUAT TABEL SECARA PAKSA
+    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY, 
+        user_id BIGINT UNIQUE NOT NULL, 
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
 } catch (PDOException $e) {
     $pdo = null;
 }
@@ -36,13 +41,17 @@ $message = $update["message"];
 $user_id = $message["from"]["id"];
 $text = trim($message["text"] ?? "");
 
-// Simpan user & hitung total (HANYA PAKAI PDO)
+// Simpan user & hitung total
 if ($pdo) {
-    $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
-    $stmt->execute([$user_id]);
-    $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    try {
+        $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
+        $stmt->execute([$user_id]);
+        $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    } catch (Exception $e) {
+        $total_users = "Error DB";
+    }
 } else {
-    $total_users = "0";
+    $total_users = "Offline";
 }
 
 // --- 5. FUNGSI HELPER ---
@@ -54,8 +63,12 @@ function sendMessage($chat_id, $text) {
 
 function forwardMedia($method, $chat_id, $file_id, $caption = "") {
     global $API;
-    $data = ["chat_id" => $chat_id, array_keys($file_id)[0] => array_values($file_id)[0]];
+    $key = str_replace("send", "", strtolower($method));
+    if ($key == "videonote") $key = "video_note";
+    
+    $data = ["chat_id" => $chat_id, $key => $file_id];
     if ($caption) $data["caption"] = $caption;
+    
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $API . $method);
     curl_setopt($ch, CURLOPT_POST, true);
@@ -95,16 +108,7 @@ elseif ($text === "/stop") {
     if ($state["waiting"] === $user_id) $state["waiting"] = null;
     sendMessage($user_id, "🛑 Kamu telah keluar.");
 }
-elseif (isset($state["pairs"][$user_id])) {
-    $target = $state["pairs"][$user_id];
-    $caption = $message["caption"] ?? "";
-    if (isset($message["text"])) {
-        sendMessage($target, $message["text"]);
-    } elseif (isset($message["photo"])) {
-        $photo = end($message["photo"]); 
-        forwardMedia("sendPhoto", $target, ["photo" => $photo["file_id"]], $caption);
-    }
-    // --- 7. RELAY PESAN & MEDIA LENGKAP ---
+// --- 7. RELAY PESAN & MEDIA LENGKAP ---
 elseif (isset($state["pairs"][$user_id])) {
     $target = $state["pairs"][$user_id];
     $caption = $message["caption"] ?? "";
@@ -112,24 +116,20 @@ elseif (isset($state["pairs"][$user_id])) {
     if (isset($message["text"])) {
         sendMessage($target, $message["text"]);
     } elseif (isset($message["photo"])) {
-        $photo = end($message["photo"]); 
-        forwardMedia("sendPhoto", $target, ["photo" => $photo["file_id"]], $caption);
+        forwardMedia("sendPhoto", $target, end($message["photo"])["file_id"], $caption);
     } elseif (isset($message["sticker"])) {
-        forwardMedia("sendSticker", $target, ["sticker" => $message["sticker"]["file_id"]]);
+        forwardMedia("sendSticker", $target, $message["sticker"]["file_id"]);
     } elseif (isset($message["voice"])) {
-        forwardMedia("sendVoice", $target, ["voice" => $message["voice"]["file_id"]]);
+        forwardMedia("sendVoice", $target, $message["voice"]["file_id"]);
     } elseif (isset($message["video"])) {
-        forwardMedia("sendVideo", $target, ["video" => $message["video"]["file_id"]], $caption);
+        forwardMedia("sendVideo", $target, $message["video"]["file_id"], $caption);
     } elseif (isset($message["video_note"])) {
-        forwardMedia("sendVideoNote", $target, ["video_note" => $message["video_note"]["file_id"]]);
+        forwardMedia("sendVideoNote", $target, $message["video_note"]["file_id"]);
     } elseif (isset($message["audio"])) {
-        forwardMedia("sendAudio", $target, ["audio" => $message["audio"]["file_id"]], $caption);
+        forwardMedia("sendAudio", $target, $message["audio"]["file_id"], $caption);
     } elseif (isset($message["document"])) {
-        forwardMedia("sendDocument", $target, ["document" => $message["document"]["file_id"]], $caption);
-    } elseif (isset($message["animation"])) {
-        forwardMedia("sendAnimation", $target, ["animation" => $message["animation"]["file_id"]], $caption);
+        forwardMedia("sendDocument", $target, $message["document"]["file_id"], $caption);
     }
-}
 }
 
 file_put_contents($STATE_FILE, json_encode($state));
