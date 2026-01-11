@@ -7,41 +7,38 @@ $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
 $STATE_FILE = "/tmp/state.json"; 
 
-$host = getenv('MYSQLHOST');
-$user = getenv('MYSQLUSER');
-$pass = getenv('MYSQLPASSWORD');
-$db   = getenv('MYSQLDATABASE'); 
-$port = getenv('MYSQLPORT') ?: '3306';
+// AMBIL PRIVATE URL DARI RAILWAY
+$db_url = getenv('MYSQL_URL') ?: getenv('MYSQL_PUBLIC_URL');
 
 try {
-    // Cek apakah variabel terbaca
-    if (!$host || !$db) {
-        throw new Exception("Variabel database tidak ditemukan");
+    if (!$db_url) {
+        throw new Exception("URL Database Kosong");
     }
 
-    $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $pass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_TIMEOUT => 5
-    ]);
+    // Membersihkan URL agar bisa dibaca PDO
+    $url = parse_url($db_id);
+    $host = $url['host'];
+    $port = $url['port'];
+    $user = $url['user'];
+    $pass = $url['pass'];
+    $db   = ltrim($url['path'], '/');
 
-    // Ambil data dari Telegram
+    $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
+    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    
+    // Ambil User ID
     $update = json_decode(file_get_contents("php://input"), true);
     $user_id = $update["message"]["from"]["id"] ?? null;
 
     if ($user_id) {
-        // Simpan ke tabel 'users' yang sudah kamu buat manual tadi
         $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
         $stmt->execute([$user_id]);
     }
 
-    // Ambil total user
     $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-    $total_users = number_format($total_users, 0, ',', '.');
-
 } catch (Exception $e) {
-    // Jika masih "Offline", berarti ada masalah jaringan internal Railway
-    $total_users = "Offline"; 
+    // Tampilkan pesan error spesifik agar kita tahu rusaknya di mana
+    $total_users = "Error: " . $e->getMessage(); 
 }// --- 3. LOAD STATE ---
 if (!file_exists($STATE_FILE)) {
     file_put_contents($STATE_FILE, json_encode(["waiting" => null, "pairs" => []]));
