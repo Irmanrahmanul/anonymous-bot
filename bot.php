@@ -92,7 +92,7 @@ function forwardMedia($method, $chat_id, $file_id, $caption = "") {
 
 // --- 6. LOGIKA BOT ---
 if ($text === "/start") {
-    sendMessage($user_id, "🔒 **Anonymous Chat**\n\n👥 `$total_users` monthly users\n\n/find - Cari teman\n/stop - Berhenti");
+    sendMessage($user_id, "🔒 **Anonymous Chat**\n\n /find - Cari teman\n/stop - Berhenti");
 } 
 elseif ($text === "/find") {
     if (isset($state["pairs"][$user_id])) {
