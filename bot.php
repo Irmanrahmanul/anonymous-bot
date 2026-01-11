@@ -1,5 +1,9 @@
 <?php
-// --- 1. KONEKSI DATABASE & AUTO-CREATE TABLE ---
+// Tampilkan error jika ada masalah (untuk debugging)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+// --- KONEKSI DATABASE (SESUAI VARIABEL RAILWAY KAMU) ---
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
@@ -8,21 +12,20 @@ $port = getenv('MYSQLPORT');
 
 $conn = new mysqli($host, $user, $pass, $db, $port);
 
-// Buat tabel users otomatis jika belum ada (Solusi Error 1067)
+// Cek jika koneksi gagal
+if ($conn->connect_error) {
+    die("Koneksi gagal: " . $conn->connect_error);
+}
+
+// --- BUAT TABEL OTOMATIS (WAJIB ADA) ---
 $conn->query("CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )");
 
-// --- 2. KONFIGURASI BOT ---
 $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
-$STATE_FILE = "/tmp/state.json"; 
-
-if (!file_exists($STATE_FILE)) {
-    file_put_contents($STATE_FILE, json_encode(["waiting" => null, "pairs" => []]));
-}
 
 $update = json_decode(file_get_contents("php://input"), true);
 if (!isset($update["message"])) exit;
@@ -30,52 +33,27 @@ if (!isset($update["message"])) exit;
 $message = $update["message"];
 $user_id = $message["from"]["id"];
 $text = trim($message["text"] ?? "");
-$state = json_decode(file_get_contents($STATE_FILE), true);
 
-// --- 3. LOGIKA STATISTIK PENGGUNA ---
-// Masukkan user ke database (UNIQUE akan mencegah duplikat)
+// Simpan user baru ke database
 $conn->query("INSERT IGNORE INTO users (user_id) VALUES ('$user_id')");
 
-// Ambil total user untuk ditampilkan di /start
+// Ambil total user
 $res = $conn->query("SELECT COUNT(*) as total FROM users");
 $row = $res->fetch_assoc();
-$total_users = number_format($row['total'], 0, ',', '.');
+$total_users = $row['total'] ?? 0;
 
-// --- 4. FUNGSI PENGIRIMAN ---
-function sendMessage($chat_id, $text) {
-    global $API;
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $API . "sendMessage");
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
-        "chat_id" => $chat_id, 
-        "text" => $text,
+// --- LOGIKA START ---
+if ($text === "/start") {
+    $pesan = "🔒 **Anonymous Chat**\n\n";
+    $pesan .= "👥 `$total_users` monthly users\n\n";
+    $pesan .= "/find - Cari teman\n/stop - Berhenti";
+    
+    file_get_contents($API . "sendMessage?" . http_build_query([
+        "chat_id" => $user_id,
+        "text" => $pesan,
         "parse_mode" => "Markdown"
     ]));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_exec($ch);
-    curl_close($ch);
 }
-
-function forwardMedia($method, $chat_id, $file_id, $caption = "") {
-    global $API;
-    $data = ["chat_id" => $chat_id, array_keys($file_id)[0] => array_values($file_id)[0]];
-    if ($caption) $data["caption"] = $caption;
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $API . $method);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_exec($ch);
-    curl_close($ch);
-}
-
-// --- 5. LOGIKA UTAMA BOT ---
-if ($text === "/start") {
-    sendMessage($user_id, "🔒 **Anonymous Chat**\n\n👥 `$total_users` monthly users\n\n/find - Cari teman\n/stop - Berhenti");
-} 
 elseif ($text === "/find") {
     if (isset($state["pairs"][$user_id])) {
         sendMessage($user_id, "⚠️ Kamu sudah terhubung.");
