@@ -9,22 +9,33 @@ $API = "https://api.telegram.org/bot$BOT_TOKEN/";
 $STATE_FILE = "/tmp/state.json"; 
 
 // Database Variables (Tanpa Garis Bawah sesuai Railway kamu)
+// --- KONEKSI DATABASE (VERSI PDO) ---
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
 $db   = getenv('MYSQLDATABASE');
 $port = getenv('MYSQLPORT');
 
-// Koneksi Database
-$conn = new mysqli($host, $user, $pass, $db, $port);
+try {
+    $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
+    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    
+    // Buat Tabel
+    $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+} catch (PDOException $e) {
+    // Jika masih error, biarkan bot tetap jalan tanpa DB sementara
+    $pdo = null;
+}
 
-// Cek Koneksi & Buat Tabel Otomatis
-if (!$conn->connect_error) {
-    $conn->query("CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id BIGINT UNIQUE NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )");
+// Hitung User (Ganti bagian hitung user dengan ini)
+if ($pdo) {
+    $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
+    $stmt->execute([$user_id]);
+    
+    $count = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    $total_users = number_format($count, 0, ',', '.');
+} else {
+    $total_users = "0 (Database Offline)";
 }
 
 // --- 3. LOAD STATE (Untuk Anonymous Chat) ---
