@@ -7,29 +7,34 @@ $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
 $STATE_FILE = "/tmp/state.json"; 
 
-// --- 2. KONEKSI DATABASE (PDO) ---
+// --- AMBIL VARIABEL DARI RAILWAY ---
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
 $db   = getenv('MYSQLDATABASE');
-$port = getenv('MYSQLPORT');
+$port = getenv('MYSQLPORT') ?: '3306';
+
+$total_users = "0";
 
 try {
-    // Jika port kosong, default ke 3306
-    $port = $port ?: '3306';
+    // Mencoba koneksi
     $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $pass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_TIMEOUT => 5 // Timeout jika lemot
-    ]);
+    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-} catch (PDOException $e) {
-    // Log error ke Telegram kamu sendiri untuk debug (Ganti ID ini dengan ID Telegram kamu)
-    // file_get_contents($API . "sendMessage?chat_id=ID_KAMU&text=" . urlencode("DB Error: " . $e->getMessage()));
-    $pdo = null;
-}
+    // Simpan user baru jika ada pesan masuk
+    $update = json_decode(file_get_contents("php://input"), true);
+    if (isset($update["message"]["from"]["id"])) {
+        $uid = $update["message"]["from"]["id"];
+        $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
+        $stmt->execute([$uid]);
+    }
 
+    // Hitung total user
+    $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+} catch (Exception $e) {
+    // Jika database error, bot tetap jalan dan lapor 'Maintenance'
+    $total_users = "Maintenance"; 
+}
 // --- 3. LOAD STATE ---
 if (!file_exists($STATE_FILE)) {
     file_put_contents($STATE_FILE, json_encode(["waiting" => null, "pairs" => []]));
