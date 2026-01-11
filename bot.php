@@ -1,32 +1,39 @@
 <?php
-// Tampilkan error jika ada masalah (untuk debugging)
+// --- 1. SETTING ERROR REPORTING ---
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// --- KONEKSI DATABASE (SESUAI VARIABEL RAILWAY KAMU) ---
+// --- 2. CONFIGURATION & DATABASE ---
+$BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
+$API = "https://api.telegram.org/bot$BOT_TOKEN/";
+$STATE_FILE = "/tmp/state.json"; 
+
+// Database Variables (Tanpa Garis Bawah sesuai Railway kamu)
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
 $db   = getenv('MYSQLDATABASE');
 $port = getenv('MYSQLPORT');
 
+// Koneksi Database
 $conn = new mysqli($host, $user, $pass, $db, $port);
 
-// Cek jika koneksi gagal
-if ($conn->connect_error) {
-    die("Koneksi gagal: " . $conn->connect_error);
+// Cek Koneksi & Buat Tabel Otomatis
+if (!$conn->connect_error) {
+    $conn->query("CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNIQUE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
 }
 
-// --- BUAT TABEL OTOMATIS (WAJIB ADA) ---
-$conn->query("CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
+// --- 3. LOAD STATE (Untuk Anonymous Chat) ---
+if (!file_exists($STATE_FILE)) {
+    file_put_contents($STATE_FILE, json_encode(["waiting" => null, "pairs" => []]));
+}
+$state = json_decode(file_get_contents($STATE_FILE), true);
 
-$BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
-$API = "https://api.telegram.org/bot$BOT_TOKEN/";
-
+// --- 4. INPUT DARI TELEGRAM ---
 $update = json_decode(file_get_contents("php://input"), true);
 if (!isset($update["message"])) exit;
 
@@ -34,26 +41,41 @@ $message = $update["message"];
 $user_id = $message["from"]["id"];
 $text = trim($message["text"] ?? "");
 
-// Simpan user baru ke database
-$conn->query("INSERT IGNORE INTO users (user_id) VALUES ('$user_id')");
-
-// Ambil total user
-$res = $conn->query("SELECT COUNT(*) as total FROM users");
-$row = $res->fetch_assoc();
-$total_users = $row['total'] ?? 0;
-
-// --- LOGIKA START ---
-if ($text === "/start") {
-    $pesan = "🔒 **Anonymous Chat**\n\n";
-    $pesan .= "👥 `$total_users` monthly users\n\n";
-    $pesan .= "/find - Cari teman\n/stop - Berhenti";
-    
-    file_get_contents($API . "sendMessage?" . http_build_query([
-        "chat_id" => $user_id,
-        "text" => $pesan,
-        "parse_mode" => "Markdown"
-    ]));
+// Simpan user ke database & hitung total
+if (!$conn->connect_error) {
+    $conn->query("INSERT IGNORE INTO users (user_id) VALUES ('$user_id')");
+    $res = $conn->query("SELECT COUNT(*) as total FROM users");
+    $row = $res->fetch_assoc();
+    $total_users = number_format($row['total'], 0, ',', '.');
+} else {
+    $total_users = "0";
 }
+
+// --- 5. FUNGSI HELPER ---
+function sendMessage($chat_id, $text) {
+    global $API;
+    $data = ["chat_id" => $chat_id, "text" => $text, "parse_mode" => "Markdown"];
+    file_get_contents($API . "sendMessage?" . http_build_query($data));
+}
+
+function forwardMedia($method, $chat_id, $file_id, $caption = "") {
+    global $API;
+    $data = ["chat_id" => $chat_id, array_keys($file_id)[0] => array_values($file_id)[0]];
+    if ($caption) $data["caption"] = $caption;
+    
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $API . $method);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+// --- 6. LOGIKA BOT ---
+if ($text === "/start") {
+    sendMessage($user_id, "🔒 **Anonymous Chat**\n\n👥 `$total_users` monthly users\n\n/find - Cari teman\n/stop - Berhenti");
+} 
 elseif ($text === "/find") {
     if (isset($state["pairs"][$user_id])) {
         sendMessage($user_id, "⚠️ Kamu sudah terhubung.");
@@ -80,7 +102,7 @@ elseif ($text === "/stop") {
     if ($state["waiting"] === $user_id) $state["waiting"] = null;
     sendMessage($user_id, "🛑 Kamu telah keluar.");
 }
-// --- 6. BAGIAN RELAY (Penerusan Pesan & Media) ---
+// --- 7. RELAY PESAN & MEDIA ---
 elseif (isset($state["pairs"][$user_id])) {
     $target = $state["pairs"][$user_id];
     $caption = $message["caption"] ?? "";
@@ -91,21 +113,19 @@ elseif (isset($state["pairs"][$user_id])) {
         forwardMedia("sendVoice", $target, ["voice" => $message["voice"]["file_id"]]);
     } elseif (isset($message["video"])) {
         forwardMedia("sendVideo", $target, ["video" => $message["video"]["file_id"]], $caption);
-    } elseif (isset($message["audio"])) {
-        forwardMedia("sendAudio", $target, ["audio" => $message["audio"]["file_id"]], $caption);
     } elseif (isset($message["photo"])) {
         $photo = end($message["photo"]); 
         forwardMedia("sendPhoto", $target, ["photo" => $photo["file_id"]], $caption);
     } elseif (isset($message["sticker"])) {
         forwardMedia("sendSticker", $target, ["sticker" => $message["sticker"]["file_id"]]);
+    } elseif (isset($message["audio"])) {
+        forwardMedia("sendAudio", $target, ["audio" => $message["audio"]["file_id"]], $caption);
     } elseif (isset($message["video_note"])) {
         forwardMedia("sendVideoNote", $target, ["video_note" => $message["video_note"]["file_id"]]);
     } elseif (isset($message["document"])) {
         forwardMedia("sendDocument", $target, ["document" => $message["document"]["file_id"]], $caption);
-    } elseif (isset($message["animation"])) {
-        forwardMedia("sendAnimation", $target, ["animation" => $message["animation"]["file_id"]], $caption);
     }
 }
 
-// Simpan status chat sementara
+// Simpan status chat
 file_put_contents($STATE_FILE, json_encode($state));
