@@ -7,6 +7,7 @@ $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
 $STATE_FILE = "/tmp/state.json"; 
 
+// Ambil variabel dari tab Variables web
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
@@ -14,23 +15,34 @@ $db   = getenv('MYSQLDATABASE');
 $port = getenv('MYSQLPORT') ?: '3306';
 
 try {
-    $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    // Pastikan semua variabel tidak kosong sebelum mencoba konek
+    if (!$host || !$user || !$db) {
+        throw new Exception("Variabel database belum di-link di Railway");
+    }
     
-    // Simpan user & hitung total
+    $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
+    $pdo = new PDO($dsn, $user, $pass, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+    ]);
+    
+    // Ambil data user dari pesan Telegram
     $update = json_decode(file_get_contents("php://input"), true);
     $user_id = $update["message"]["from"]["id"] ?? null;
-    
+
     if ($user_id) {
+        // Simpan ke tabel users yang sudah kamu buat tadi
         $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
         $stmt->execute([$user_id]);
     }
-    
+
+    // Ambil total user
     $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    
 } catch (Exception $e) {
-    $total_users = "Offline";
-}
-// --- 3. LOAD STATE ---
+    // Jika masih "Offline", berarti variabel di langkah #1 belum kamu lakukan
+    $total_users = "Offline (DB Error)";
+}// --- 3. LOAD STATE ---
 if (!file_exists($STATE_FILE)) {
     file_put_contents($STATE_FILE, json_encode(["waiting" => null, "pairs" => []]));
 }
