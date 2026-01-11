@@ -93,6 +93,12 @@ elseif (isset($state["pairs"][$user_id])) {
     } elseif (isset($message["video_note"])) {
         forwardMedia("sendVideoNote", $target, ["video_note" => $message["video_note"]["file_id"]]);
     }
+
+    elseif (isset($message["document"])) {
+        forwardMedia("sendDocument", $target, ["document" => $message["document"]["file_id"]], $caption);
+    } elseif (isset($message["animation"])) {
+        forwardMedia("sendAnimation", $target, ["animation" => $message["animation"]["file_id"]], $caption);
+    }
 }
 
 file_put_contents($STATE_FILE, json_encode($state));
