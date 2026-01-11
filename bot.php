@@ -1,15 +1,13 @@
 <?php
-// --- 1. SETTING ERROR REPORTING ---
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// --- 2. CONFIGURATION & DATABASE ---
+// --- 1. CONFIGURATION ---
 $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
 $STATE_FILE = "/tmp/state.json"; 
 
-// Database Variables (Tanpa Garis Bawah sesuai Railway kamu)
-// --- KONEKSI DATABASE (VERSI PDO) ---
+// --- 2. KONEKSI DATABASE (VERSI PDO - ANTI ERROR) ---
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
@@ -19,26 +17,12 @@ $port = getenv('MYSQLPORT');
 try {
     $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
     $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    
-    // Buat Tabel
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
 } catch (PDOException $e) {
-    // Jika masih error, biarkan bot tetap jalan tanpa DB sementara
     $pdo = null;
 }
 
-// Hitung User (Ganti bagian hitung user dengan ini)
-if ($pdo) {
-    $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
-    $stmt->execute([$user_id]);
-    
-    $count = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-    $total_users = number_format($count, 0, ',', '.');
-} else {
-    $total_users = "0 (Database Offline)";
-}
-
-// --- 3. LOAD STATE (Untuk Anonymous Chat) ---
+// --- 3. LOAD STATE ---
 if (!file_exists($STATE_FILE)) {
     file_put_contents($STATE_FILE, json_encode(["waiting" => null, "pairs" => []]));
 }
@@ -52,12 +36,11 @@ $message = $update["message"];
 $user_id = $message["from"]["id"];
 $text = trim($message["text"] ?? "");
 
-// Simpan user ke database & hitung total
-if (!$conn->connect_error) {
-    $conn->query("INSERT IGNORE INTO users (user_id) VALUES ('$user_id')");
-    $res = $conn->query("SELECT COUNT(*) as total FROM users");
-    $row = $res->fetch_assoc();
-    $total_users = number_format($row['total'], 0, ',', '.');
+// Simpan user & hitung total (HANYA PAKAI PDO)
+if ($pdo) {
+    $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
+    $stmt->execute([$user_id]);
+    $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 } else {
     $total_users = "0";
 }
@@ -73,7 +56,6 @@ function forwardMedia($method, $chat_id, $file_id, $caption = "") {
     global $API;
     $data = ["chat_id" => $chat_id, array_keys($file_id)[0] => array_values($file_id)[0]];
     if ($caption) $data["caption"] = $caption;
-    
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $API . $method);
     curl_setopt($ch, CURLOPT_POST, true);
@@ -113,30 +95,16 @@ elseif ($text === "/stop") {
     if ($state["waiting"] === $user_id) $state["waiting"] = null;
     sendMessage($user_id, "🛑 Kamu telah keluar.");
 }
-// --- 7. RELAY PESAN & MEDIA ---
 elseif (isset($state["pairs"][$user_id])) {
     $target = $state["pairs"][$user_id];
     $caption = $message["caption"] ?? "";
-
     if (isset($message["text"])) {
         sendMessage($target, $message["text"]);
-    } elseif (isset($message["voice"])) {
-        forwardMedia("sendVoice", $target, ["voice" => $message["voice"]["file_id"]]);
-    } elseif (isset($message["video"])) {
-        forwardMedia("sendVideo", $target, ["video" => $message["video"]["file_id"]], $caption);
     } elseif (isset($message["photo"])) {
         $photo = end($message["photo"]); 
         forwardMedia("sendPhoto", $target, ["photo" => $photo["file_id"]], $caption);
-    } elseif (isset($message["sticker"])) {
-        forwardMedia("sendSticker", $target, ["sticker" => $message["sticker"]["file_id"]]);
-    } elseif (isset($message["audio"])) {
-        forwardMedia("sendAudio", $target, ["audio" => $message["audio"]["file_id"]], $caption);
-    } elseif (isset($message["video_note"])) {
-        forwardMedia("sendVideoNote", $target, ["video_note" => $message["video_note"]["file_id"]]);
-    } elseif (isset($message["document"])) {
-        forwardMedia("sendDocument", $target, ["document" => $message["document"]["file_id"]], $caption);
     }
+    // ... media lain (voice, video, dsb) bisa ditambahkan di sini ...
 }
 
-// Simpan status chat
 file_put_contents($STATE_FILE, json_encode($state));
