@@ -15,15 +15,18 @@ $db   = getenv('MYSQLDATABASE');
 $port = getenv('MYSQLPORT');
 
 try {
+    // Jika port kosong, default ke 3306
+    $port = $port ?: '3306';
     $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    // MEMBUAT TABEL SECARA PAKSA
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY, 
-        user_id BIGINT UNIQUE NOT NULL, 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )");
+    $pdo = new PDO($dsn, $user, $pass, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_TIMEOUT => 5 // Timeout jika lemot
+    ]);
+    
+    $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
 } catch (PDOException $e) {
+    // Log error ke Telegram kamu sendiri untuk debug (Ganti ID ini dengan ID Telegram kamu)
+    // file_get_contents($API . "sendMessage?chat_id=ID_KAMU&text=" . urlencode("DB Error: " . $e->getMessage()));
     $pdo = null;
 }
 
