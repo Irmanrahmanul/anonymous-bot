@@ -7,33 +7,28 @@ $BOT_TOKEN = "8002083390:AAHaXaKqYILkNSDMpUcQiJb1p3Aa-Ugfw14";
 $API = "https://api.telegram.org/bot$BOT_TOKEN/";
 $STATE_FILE = "/tmp/state.json"; 
 
-// --- AMBIL VARIABEL DARI RAILWAY ---
 $host = getenv('MYSQLHOST');
 $user = getenv('MYSQLUSER');
 $pass = getenv('MYSQLPASSWORD');
 $db   = getenv('MYSQLDATABASE');
 $port = getenv('MYSQLPORT') ?: '3306';
 
-$total_users = "0";
-
 try {
-    // Mencoba koneksi
     $dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
     $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     
-    // Simpan user baru jika ada pesan masuk
+    // Simpan user & hitung total
     $update = json_decode(file_get_contents("php://input"), true);
-    if (isset($update["message"]["from"]["id"])) {
-        $uid = $update["message"]["from"]["id"];
+    $user_id = $update["message"]["from"]["id"] ?? null;
+    
+    if ($user_id) {
         $stmt = $pdo->prepare("INSERT IGNORE INTO users (user_id) VALUES (?)");
-        $stmt->execute([$uid]);
+        $stmt->execute([$user_id]);
     }
-
-    // Hitung total user
+    
     $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 } catch (Exception $e) {
-    // Jika database error, bot tetap jalan dan lapor 'Maintenance'
-    $total_users = "Maintenance"; 
+    $total_users = "Offline";
 }
 // --- 3. LOAD STATE ---
 if (!file_exists($STATE_FILE)) {
