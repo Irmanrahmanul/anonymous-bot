@@ -104,7 +104,32 @@ elseif (isset($state["pairs"][$user_id])) {
         $photo = end($message["photo"]); 
         forwardMedia("sendPhoto", $target, ["photo" => $photo["file_id"]], $caption);
     }
-    // ... media lain (voice, video, dsb) bisa ditambahkan di sini ...
+    // --- 7. RELAY PESAN & MEDIA LENGKAP ---
+elseif (isset($state["pairs"][$user_id])) {
+    $target = $state["pairs"][$user_id];
+    $caption = $message["caption"] ?? "";
+
+    if (isset($message["text"])) {
+        sendMessage($target, $message["text"]);
+    } elseif (isset($message["photo"])) {
+        $photo = end($message["photo"]); 
+        forwardMedia("sendPhoto", $target, ["photo" => $photo["file_id"]], $caption);
+    } elseif (isset($message["sticker"])) {
+        forwardMedia("sendSticker", $target, ["sticker" => $message["sticker"]["file_id"]]);
+    } elseif (isset($message["voice"])) {
+        forwardMedia("sendVoice", $target, ["voice" => $message["voice"]["file_id"]]);
+    } elseif (isset($message["video"])) {
+        forwardMedia("sendVideo", $target, ["video" => $message["video"]["file_id"]], $caption);
+    } elseif (isset($message["video_note"])) {
+        forwardMedia("sendVideoNote", $target, ["video_note" => $message["video_note"]["file_id"]]);
+    } elseif (isset($message["audio"])) {
+        forwardMedia("sendAudio", $target, ["audio" => $message["audio"]["file_id"]], $caption);
+    } elseif (isset($message["document"])) {
+        forwardMedia("sendDocument", $target, ["document" => $message["document"]["file_id"]], $caption);
+    } elseif (isset($message["animation"])) {
+        forwardMedia("sendAnimation", $target, ["animation" => $message["animation"]["file_id"]], $caption);
+    }
+}
 }
 
 file_put_contents($STATE_FILE, json_encode($state));
